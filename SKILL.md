@@ -1,7 +1,7 @@
 ---
 name: "Session Cleanup"
 description: "End-of-session housekeeping for git repositories. Use when the user asks to 'end of session', 'clean up session', 'session housekeeping', 'clean up branches', 'clean up worktrees', or 'clean up remote branches'."
-version: "1.1.0"
+version: "1.2.0"
 ---
 
 # Session Cleanup
@@ -45,6 +45,21 @@ Or trigger via phrases: "end of session", "clean up branches", "clean up worktre
 3. **Branch Cleanup** — Push unreleased content, cherry-pick docs to main, delete merged branches
 4. **Worktree Cleanup** — Remove stale worktrees via project script or `git worktree remove`
 5. **Final State** — Sync main, confirm clean working tree, report summary
+
+## Pre-Dispatch Check (REQUIRED — run before spawning agent)
+
+Before launching the cleanup agent, run these two commands via Bash:
+
+```bash
+git status --porcelain
+git branch --list | grep -v "^\* main$"
+```
+
+**If both return empty** (working tree clean AND only `main` branch exists locally), cleanup has almost certainly already run this session. Do NOT spawn the agent. Instead, tell the user:
+
+> "The repo looks clean already — only `main`, nothing uncommitted. Cleanup appears to have already run this session. Run it again anyway?"
+
+Only proceed to Dispatch if the user confirms, or if either check returns output (there is real work to do).
 
 ## Dispatch
 
