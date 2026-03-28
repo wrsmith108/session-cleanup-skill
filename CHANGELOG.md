@@ -7,6 +7,13 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [1.2.1] — 2026-03-28
+
+### Fixed
+- **Remote branch deletion now batched** (SMI-3710): Phase 3b previously deleted remote branches one at a time in a loop, triggering a full pre-push hook run per branch (~3 min). All remote deletes are now issued in a single `git push origin --delete b1 b2 ... bN` invocation, running the hook once and eliminating mid-loop partial-deletion state on hook failures.
+
+---
+
 ## [1.2.0] — 2026-03-01
 
 ### Fixed

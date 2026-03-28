@@ -1,7 +1,7 @@
 ---
 name: "Session Cleanup"
 description: "End-of-session housekeeping for git repositories. Use when the user asks to 'end of session', 'clean up session', 'session housekeeping', 'clean up branches', 'clean up worktrees', or 'clean up remote branches'."
-version: "1.2.0"
+version: "1.2.1"
 ---
 
 # Session Cleanup
@@ -67,3 +67,13 @@ Only proceed to Dispatch if the user confirms, or if either check returns output
 Use the Task tool with subagent_type="general-purpose" and pass the full contents
 of ~/.claude/skills/session-cleanup/agent-prompt.md as the prompt.
 ```
+
+---
+
+## Changelog
+
+### v1.2.1 (2026-03-28)
+- **Fixed**: Phase 3b remote branch deletion now batches all deletes into a single `git push origin --delete b1 b2 ... bN` invocation instead of a per-branch loop. Eliminates O(N) pre-push hook runs and avoids partial-deletion state from mid-loop hook failures. (SMI-3710)
+
+### v1.2.0
+- Initial structured release with five-phase workflow and pre-dispatch idempotency check

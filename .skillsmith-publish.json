@@ -1,7 +1,7 @@
 {
   "name": "Session Cleanup",
-  "version": "1.1.0",
-  "checksum": "ea378a5ae2e13a6afe445cfdd4eaca606b58bce4b94f526fbf990875a65edd66",
+  "version": "1.2.1",
+  "checksum": "63baef620e81646c995fb141086e5307cde56a613d7a9778054ac2eb16dd0546",
   "trustTier": "experimental",
-  "publishedAt": "2026-02-22T21:41:40.604Z"
+  "publishedAt": "2026-03-28T15:42:52.915Z"
 }

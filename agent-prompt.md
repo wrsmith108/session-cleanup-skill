@@ -210,16 +210,17 @@ git commit -m "<original message>"
 Delete remote before local (so local delete serves as confirmation):
 
 ```bash
-# Remote first — one at a time to handle partial failures cleanly
-for branch in <branch1> <branch2> ...; do
-  git push origin --delete "$branch" && echo "Remote deleted: $branch" || echo "Remote delete FAILED: $branch"
-done
-
-# Then local
-git branch -D <branch1> <branch2> ...
+# Remote first — batch all deletes into ONE push to run the pre-push hook once
+# (SMI-3710: per-branch loop triggers a full hook run per branch)
+git push origin --delete <branch1> <branch2> <branch3> ...
 ```
 
-If `git push origin --delete` fails for a branch (e.g. pre-push hook), stop and report the error to the user. Ask before using `--no-verify`. Always state the specific reason when bypassing hooks.
+Parse the output for any per-branch failures (GitHub reports `! [remote rejected]` per ref). If any branch failed, report which ones and ask the user before retrying with `--no-verify`. Always state the specific reason when bypassing hooks.
+
+```bash
+# Then local (also batched)
+git branch -D <branch1> <branch2> ...
+```
 
 ### 3c. Stale remote-only branches
 
