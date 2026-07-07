@@ -1,7 +1,7 @@
 ---
 name: "Session Cleanup"
 description: "End-of-session housekeeping for git repositories. Use when the user asks to 'end of session', 'clean up session', 'session housekeeping', 'clean up branches', 'clean up worktrees', or 'clean up remote branches'."
-version: "1.2.1"
+version: "1.4.0"
 ---
 
 # Session Cleanup
@@ -40,11 +40,12 @@ Or trigger via phrases: "end of session", "clean up branches", "clean up worktre
 
 ## Five Phases
 
-1. **Doc Review** — CLAUDE.md staleness, MEMORY.md updates, submodule dirty state
+1. **Doc Review** — CLAUDE.md staleness, MEMORY.md updates, MEMORY.md TTL pruning (class-4 entries past their expiry), submodule dirty state
 2. **Branch Audit** — PR status check, unpushed commit detection, squash-merge artifact filtering
 3. **Branch Cleanup** — Push unreleased content, cherry-pick docs to main, delete merged branches
 4. **Worktree Cleanup** — Remove stale worktrees via project script or `git worktree remove`
-5. **Final State** — Sync main, confirm clean working tree, report summary
+5. **Backlog Sweep** — Query Linear for issues in Backlog state with no activity in 30+ days. For each, check if the work was completed by a related commit (search git log for issue ID or title keywords). Present findings for user to mark Done or re-prioritize. Monthly cadence; also consider a scheduled remote trigger (`/schedule`) to enforce.
+6. **Final State** — Sync main, confirm clean working tree, report summary
 
 ## Pre-Dispatch Check (REQUIRED — run before spawning agent)
 
@@ -71,6 +72,12 @@ of ~/.claude/skills/session-cleanup/agent-prompt.md as the prompt.
 ---
 
 ## Changelog
+
+### v1.4.0 (2026-07-06)
+- **Fixed**: Phase 2 Category-A gating no longer relies on two-dot diff file count for branches with a merged PR — that diff measures drift against *today's* main, not unreleased content, and misclassifies old-but-merged branches in high-merge-velocity repos. `gh pr` MERGED state is now authoritative for Category A; the two-dot diff is only used as a gate for no-PR/open-PR branches. Found and fixed after `chore/smi-5359-quarantine-deliverables` (1 real unmerged commit) showed ~400 files in a raw two-dot diff during a cleanup pass. (SMI-5554 session)
+
+### v1.3.0 (2026-04-23)
+- **Added**: Phase 1b now scans `MEMORY.md` for `TTL: YYYY-MM-DD` markers and surfaces entries whose date has passed for user-approved pruning. Pairs with the `memory-governance` skill's class-4 (project state with TTL) classification. (SMI-4432 Pass 4)
 
 ### v1.2.1 (2026-03-28)
 - **Fixed**: Phase 3b remote branch deletion now batches all deletes into a single `git push origin --delete b1 b2 ... bN` invocation instead of a per-branch loop. Eliminates O(N) pre-push hook runs and avoids partial-deletion state from mid-loop hook failures. (SMI-3710)

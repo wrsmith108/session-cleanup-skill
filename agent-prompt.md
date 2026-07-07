@@ -56,7 +56,52 @@ If output is non-empty: report the uncommitted changes and ask the user if they 
 Scan for stale entries: deploy commands referencing deleted branches, monitoring jobs that no longer exist, or workflow names that have changed. Report findings; do not auto-edit unless clearly wrong.
 
 ### 1b. MEMORY.md
-Check `~/.claude/projects/<project>/memory/MEMORY.md` if it exists. Identify anything from this session worth persisting. Add entries following the existing format — semantic groupings, not chronological logs.
+
+Check `~/.claude/projects/<project>/memory/MEMORY.md` if it exists. Two operations:
+
+**1b-i. Persist new lessons**
+
+Identify anything from this session worth persisting. Invoke the `memory-governance` skill to classify candidate entries before writing — it routes to the correct destination (MEMORY.md / topic file / new skill / decline). Do NOT write directly without classification.
+
+**1b-ii. Prune expired TTL markers (SMI-4432 Pass 4)**
+
+Class-4 memory entries (project state with expiry) carry a `TTL: YYYY-MM-DD` marker. After the date, the entry is noise and should be removed.
+
+```bash
+MEMORY_FILE=~/.claude/projects/<project>/memory/MEMORY.md
+TODAY=$(date -u +%Y-%m-%d)
+
+# Find all TTL markers and compare to today
+grep -nE 'TTL: [0-9]{4}-[0-9]{2}-[0-9]{2}' "$MEMORY_FILE" | while IFS= read -r match; do
+  line_no=$(echo "$match" | cut -d: -f1)
+  ttl_date=$(echo "$match" | grep -oE 'TTL: [0-9]{4}-[0-9]{2}-[0-9]{2}' | cut -d' ' -f2)
+  if [[ "$ttl_date" < "$TODAY" ]]; then
+    echo "EXPIRED (TTL $ttl_date, today $TODAY) — line $line_no:"
+    sed -n "${line_no}p" "$MEMORY_FILE"
+  fi
+done
+```
+
+If no expired entries: note "checked — no expired TTL entries" in the Phase 1 summary.
+
+If expired entries found: present them to the user with line numbers and ask:
+
+> "These MEMORY.md entries have expired (TTL date is past). Remove them?
+>
+> - Line N: <line content>
+> - Line M: <line content>
+>
+> [yes / no / review each]"
+
+**Never auto-remove**. Removal requires user confirmation — the session-cleanup skill is guided-decision, not automated. If confirmed, use the `Edit` tool to remove the matched lines. If the user says "review each", iterate one at a time.
+
+**Also detect TTL marker format errors**:
+
+- `TTL: 2026/04/23` (slashes not hyphens) — flag for user to fix
+- `TTL 2026-04-23` (missing colon) — flag
+- `TTL: 2026-4-23` (not zero-padded) — flag — the regex above won't match
+
+If any format errors are found, surface them so the user can correct the markers (they won't prune reliably until fixed).
 
 ### 1c. Submodule dirty state
 
@@ -110,28 +155,46 @@ gh pr list --state all --json number,title,state,headRefName,mergedAt \
   --jq '.[] | select(.headRefName == "<branch>") | [.number, .state, (.mergedAt // "open")] | @tsv'
 ```
 
-### 2c. Detect real content differences (two-dot diff)
+### 2c. Detect real content differences
 
-For every branch with ahead commits, run both checks:
+**PR-merged status is the authoritative signal, not the two-dot diff — the diff alone is only
+reliable for branches with no merged PR.** In a high-merge-velocity repo, a branch cut weeks ago
+and merged long since will show a large two-dot diff against *today's* main purely from drift
+(hundreds of unrelated commits from other PRs landing in between) — that is not unreleased
+content, and gating on diff count alone will misclassify a genuinely-safe-to-delete branch as
+Category B. (Found in practice, SMI-5554 cleanup: `chore/smi-5359-quarantine-deliverables` showed
+~400 changed files in a raw two-dot diff despite having exactly one unmerged commit.)
+
+```bash
+# Authoritative: is there a merged PR for this branch?
+gh pr list --state all --json number,title,state,headRefName,mergedAt \
+  --jq '.[] | select(.headRefName == "<branch>") | [.number, .state, (.mergedAt // "open")] | @tsv'
+```
+
+- **PR state is MERGED**: the branch is safe to delete (Category A) regardless of two-dot diff
+  size — do not compute or report the two-dot diff as a gating signal for this branch. If you
+  need to double check for a stray uncherry-picked commit, use the three-dot commit log instead
+  (see below), never the file-count diff.
+- **PR state is OPEN, or no PR exists**: fall back to the two-dot diff as the gate:
 
 ```bash
 # Three-dot: find commit hashes not yet in main (for cherry-pick targeting only)
 git log main..<branch> --oneline
 
-# Two-dot: check ACTUAL content difference today (the gating check)
+# Two-dot: check ACTUAL content difference today (the gating check — only meaningful here)
 git diff main <branch> --name-only
 ```
 
-- If two-dot diff shows **0 files**: squash-merge artifact — content is identical to main, safe to delete.
-- If two-dot diff shows **files**: genuine unreleased content — categorize as B.
+  - Two-dot diff shows **0 files**: squash-merge artifact or no real changes — safe to delete.
+  - Two-dot diff shows **files**: genuine unreleased content — categorize as B (open PR) or C (no PR).
 
 ### 2d. Categorize each branch
 
 | Category | Criteria |
 |----------|----------|
-| **A: Safe to delete** | PR merged AND two-dot diff shows 0 content difference |
-| **B: Needs attention** | Has genuine content differences from main |
-| **C: In progress** | No merged PR |
+| **A: Safe to delete** | PR state is MERGED (two-dot diff not used as a gate for these) |
+| **B: Needs attention** | No merged PR, and two-dot diff shows genuine content differences, PR open |
+| **C: In progress** | No PR at all, two-dot diff shows genuine content differences |
 
 ### 2e. For Category B — classify content type
 
