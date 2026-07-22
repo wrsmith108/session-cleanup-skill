@@ -1,7 +1,7 @@
 ---
 name: "Session Cleanup"
 description: "End-of-session housekeeping for git repositories. Use when the user asks to 'end of session', 'clean up session', 'session housekeeping', 'clean up branches', 'clean up worktrees', or 'clean up remote branches'."
-version: "1.4.0"
+version: "1.4.1"
 ---
 
 # Session Cleanup
@@ -72,6 +72,9 @@ of ~/.claude/skills/session-cleanup/agent-prompt.md as the prompt.
 ---
 
 ## Changelog
+
+### v1.4.1 (2026-07-22)
+- **Fixed**: Phase 5 Reset Guard checked working-tree cleanliness only, not which branch was checked out — a clean-but-non-main checkout (e.g. a docs/feature branch with an open PR) would have its own tip discarded by `git reset --hard origin/main`. Guard now also confirms `git branch --show-current` is `main`, checking out `main` first if not, before any reset. Found via a real near-miss: the main checkout was on a branch with 5 unmerged commits backing an open PR when Phase 5 was about to run.
 
 ### v1.4.0 (2026-07-06)
 - **Fixed**: Phase 2 Category-A gating no longer relies on two-dot diff file count for branches with a merged PR — that diff measures drift against *today's* main, not unreleased content, and misclassifies old-but-merged branches in high-merge-velocity repos. `gh pr` MERGED state is now authoritative for Category A; the two-dot diff is only used as a gate for no-PR/open-PR branches. Found and fixed after `chore/smi-5359-quarantine-deliverables` (1 real unmerged commit) showed ~400 files in a raw two-dot diff during a cleanup pass. (SMI-5554 session)
