@@ -7,6 +7,34 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [1.5.0] — 2026-07-23
+
+### Added
+- **Phase 4c — orphaned Docker resource sweep**: the routine per-worktree-removal path (Phase 4b's project script, when it also tears down Docker resources) only fires when a worktree is removed *through* that script. Worktrees that disappear another way — crash, manual `rm -rf`, a bare `git worktree remove` — never trigger it, so orphaned per-worktree volumes/images silently accumulate with nothing to catch them. Phase 4c looks for a project-specific orphan-prune script (if one exists), runs it in dry-run/report-only mode, cross-checks reported project slugs against Phase 4a's `git worktree list` output as a second safety check, and presents the count and reclaimable space to the user before deleting anything — same Guided Decision pattern as the rest of the skill. Silently skipped if the project has no such script.
+
+---
+
+## [1.4.1] — 2026-07-22
+
+### Fixed
+- **Phase 5 Reset Guard checked working-tree cleanliness only, not which branch was checked out**: a clean-but-non-main checkout (e.g. a docs/feature branch with an open PR) would have its own tip discarded by `git reset --hard origin/main`. Guard now also confirms `git branch --show-current` is `main`, checking out `main` first if not, before any reset. Found via a real near-miss where the main checkout was on a branch with 5 unmerged commits backing an open PR when Phase 5 was about to run.
+
+---
+
+## [1.4.0] — 2026-07-06
+
+### Fixed
+- **Phase 2 Category-A gating no longer relies on two-dot diff file count for branches with a merged PR**: that diff measures drift against *today's* main, not unreleased content, and misclassifies old-but-merged branches in high-merge-velocity repos. `gh pr` MERGED state is now authoritative for Category A; the two-dot diff is only used as a gate for no-PR/open-PR branches.
+
+---
+
+## [1.3.0] — 2026-04-23
+
+### Added
+- **Phase 1b now scans `MEMORY.md` for `TTL: YYYY-MM-DD` markers** and surfaces entries whose date has passed for user-approved pruning, pairing with memory-governance-style class-4 (project state with TTL) classification.
+
+---
+
 ## [1.2.1] — 2026-03-28
 
 ### Fixed

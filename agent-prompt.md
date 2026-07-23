@@ -15,6 +15,7 @@ You are executing a structured end-of-session housekeeping workflow for a git re
 7. **`--no-verify` requires user consent** — never bypass hooks automatically; show the hook error, explain why, and ask the user to confirm before using `--no-verify`
 8. **Two-dot diff is the gate** — `git diff main <branch>` (two-dot, content) is what determines if a branch has unreleased content; the three-dot log is only for finding commit hashes to cherry-pick
 9. **Abort gracefully** — if the user says "stop" or "cancel" at any point, report what was completed, list what was skipped, and exit
+10. **Docker orphan sweep requires consent** — Phase 4c may run a project's orphan-prune script in dry-run/report mode freely (read-only), but must never pass its "delete" flags without first showing the user the candidate list/count and getting explicit approval, same as Phase 3's branch deletions
 
 ---
 
@@ -332,7 +333,64 @@ git worktree prune
 
 Do not remove worktrees that show recent file modification times or have active processes.
 
-**Phase 4 summary line** (always emit): List removed worktrees or "All clean, nothing to do."
+### 4c. Orphaned Docker resource sweep (audit only)
+
+**Why this step exists**: 4b's removal script (when the project has one) tears down Docker
+resources *for the worktree it just removed* — but only when removal actually goes through
+that script. A worktree that disappears another way (crash, manual `rm -rf`, a bare
+`git worktree remove` done outside this skill) never triggers that teardown at all, so its
+orphaned volumes/images are never caught by anything and accumulate silently over time. This
+step is a periodic backstop for exactly that gap — it is not a duplicate of 4b's per-removal
+cleanup.
+
+Check for a project-specific Docker orphan-prune script (common names:
+`prune-orphaned-docker-volumes.sh`, `docker-prune-orphans.sh`, `prune-docker-orphans.sh`):
+
+```bash
+ls ./scripts/prune-orphaned-docker-volumes.sh 2>/dev/null \
+  || ls ./scripts/docker-prune-orphans.sh 2>/dev/null \
+  || ls ./scripts/prune-docker-orphans.sh 2>/dev/null && echo "script exists"
+```
+
+**If no such script exists**: skip this step entirely — not every project has one. No need to
+mention it in the summary.
+
+**If a script exists**, run it read-only first. Check its `--help`/usage output or header
+comments for a dry-run flag and an "include unconfirmed/unlabeled ownership" flag — most
+scripts of this shape separate ownership-confirmed candidates (safe to auto-delete) from
+unconfirmed ones (need a human look) behind flags like `--dry-run` / `--include-unlabeled`:
+
+```bash
+./scripts/prune-orphaned-docker-volumes.sh --dry-run --include-unlabeled
+```
+
+**Cross-check before presenting anything**: extract the project-name slug from each reported
+candidate and confirm none of them match the worktree paths listed in Phase 4a's
+`git worktree list` output. This is a second, independent check layered on top of whatever
+safety predicate the project's own script already implements — not a replacement for it.
+
+If the dry-run reports zero candidates: note "checked — nothing orphaned" and move on.
+
+If it reports candidates, present the counts and ask:
+
+> "Found N orphaned Docker volumes/images that don't match any current worktree (~X reclaimable
+> disk space). Prune them?"
+
+If the ownership-confirmed and unconfirmed counts differ meaningfully, offer the narrower scope
+too — e.g. "prune only the confirmed-owned ones" vs. "include the unconfirmed-ownership ones as
+well" — and let the user pick. Only run the destructive form after explicit approval:
+
+```bash
+./scripts/prune-orphaned-docker-volumes.sh --include-unlabeled   # or without the flag, per user's chosen scope
+```
+
+If the user declines, or the script doesn't expose these flags, note that in the summary and
+move on — this step must never block the rest of Phase 4 or Phase 5.
+
+**Phase 4 summary line** (always emit): List removed worktrees, whether a Docker warning was
+issued, AND the orphan sweep result (resources removed + space reclaimed / "checked — nothing
+orphaned" / "no orphan-prune script found" / "skipped — user declined"), or "All clean, nothing
+to do" if nothing in 4a–4c required action.
 
 ---
 
@@ -391,6 +449,7 @@ Each phase must appear with one of three states: **acted**, **clean** (checked, 
 **Phase 4 — Worktrees**
 - Removed: <path-1>  [or: checked — no stale worktrees]
 - Docker warning issued: [yes/no]
+- Orphan Docker sweep: [N resources removed, ~XGB reclaimed / checked — nothing orphaned / no orphan-prune script found / skipped — user declined]
 
 **Phase 5 — Sync**
 - main: synced to origin/main @ <short-hash>  [or: skipped — uncommitted work present]
