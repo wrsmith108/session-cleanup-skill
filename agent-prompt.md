@@ -16,6 +16,7 @@ You are executing a structured end-of-session housekeeping workflow for a git re
 8. **Two-dot diff is the gate** — `git diff main <branch>` (two-dot, content) is what determines if a branch has unreleased content; the three-dot log is only for finding commit hashes to cherry-pick
 9. **Abort gracefully** — if the user says "stop" or "cancel" at any point, report what was completed, list what was skipped, and exit
 10. **Docker orphan sweep requires consent** — Phase 4c may run a project's orphan-prune script in dry-run/report mode freely (read-only), but must never pass its "delete" flags without first showing the user the candidate list/count and getting explicit approval, same as Phase 3's branch deletions
+11. **Container inventory is advisory** — if a project exposes a report-only container inventory, present `live-old` and `excessive` findings separately from `orphaned` candidates. Age/count never authorize deletion; recommend `docker stats` before attributing slowness, and ask before stopping any live container.
 
 ---
 

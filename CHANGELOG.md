@@ -7,6 +7,11 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [1.6.0] — 2026-07-25
+
+### Added
+- **Container-inventory review**: project-provided report-only inventories now distinguish live-old/excessive advisory findings from orphaned cleanup candidates. The workflow recommends confirming resource pressure with `docker stats`; neither age nor count is deletion authority, and stopping live containers always requires consent.
+
 ## [1.5.0] — 2026-07-23
 
 ### Added
