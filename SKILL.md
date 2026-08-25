@@ -1,7 +1,7 @@
 ---
 name: "Session Cleanup"
 description: "End-of-session housekeeping for git repositories. Use when the user asks to 'end of session', 'clean up session', 'session housekeeping', 'clean up branches', 'clean up worktrees', or 'clean up remote branches'."
-version: "1.6.0"
+version: "1.7.0"
 ---
 
 # Session Cleanup
@@ -25,6 +25,8 @@ This skill spawns a general-purpose subagent that performs git operations and fi
 **Required tools**: Read, Write, Edit, Bash, Grep, Glob
 
 **Fallback**: If tools are denied, the subagent returns a checklist of recommended actions for the coordinator to apply manually.
+
+**AskUserQuestion may not be available to the dispatched subagent** (found in practice, 2026-08-12): a `general-purpose` subagent spawned via the Task/Agent tool does not reliably have `AskUserQuestion` in its toolset in every harness, even though this skill's confirmation gates (Phase 2f, Phase 3, Phase 4c) assume it does. When this happens, the subagent should not guess or skip the gate — it should stop, return its full categorized findings as a condensed, decision-ready summary (counts + names + recommended action per bucket, not a raw dump of hundreds of items) to the coordinator, and let the coordinator either relay to the user via its own `AskUserQuestion` or (if the coordinator has independently gathered enough context to judge the scope safe) approve directly. The coordinator then sends the scoped go-ahead back to the SAME subagent (resume via `SendMessage` to its agent ID, not a fresh dispatch) to execute — this preserves the subagent's already-built audit state (scratch files, full branch lists) instead of re-doing the audit from scratch.
 
 ## Usage
 
@@ -72,6 +74,24 @@ of ~/.claude/skills/session-cleanup/agent-prompt.md as the prompt.
 ---
 
 ## Changelog
+
+### v1.7.0 (2026-08-25)
+- **Added**: Phase 4c no longer trusts a project's orphan-prune script alone — it now always
+  runs a manual cross-check too (`docker volume ls`'s `com.docker.compose.project` labels
+  against `git worktree list`, plus a dangling-volume/live-container confirmation before
+  calling anything orphaned). Also extends 4c's scope to two categories the script-only
+  approach never covered at all: build-cache pruning (`docker builder prune`, low-risk, doesn't
+  touch any current image) and superseded same-repository image tags (moderate-risk, ask
+  first). Explicitly excludes volumes/images belonging to unrelated Docker Compose projects
+  sharing the same daemon. Found via a real cleanup run: this project's own
+  `prune-orphaned-docker-volumes.sh --dry-run --include-unlabeled` reported zero candidates,
+  but the manual cross-check found ~2.7GB across 6 fully orphaned volume groups the script's
+  ownership predicate didn't recognize (a newer per-package `<slug>_<package>-node-modules`
+  naming shape postdated the script's pattern matching). Total reclaim across all three
+  categories that run: ~37GB (orphaned volumes + build cache + superseded images).
+
+### v1.6.1 (2026-08-12)
+- **Fixed**: Phase 3b/3c's batched-delete guidance now warns explicitly about zsh vs. bash unquoted-`$VAR` word-splitting — building the branch list in a shell variable and expanding it unquoted silently no-ops the delete under zsh (no error, just doesn't work) while working fine under bash. Guidance now recommends writing the list to a file and piping through `xargs`, which is shell-agnostic, plus verifying the delete landed via a live `git ls-remote --heads origin` rather than trusting the push command's exit code. Found via a real cleanup run (187-branch batch): the first attempt partially no-op'd under zsh with no visible error before the executing agent diagnosed the shell-specific cause and switched to the `xargs` form mid-run.
 
 ### v1.6.0 (2026-07-25)
 - **Added**: Phase 4 container-inventory review distinguishes advisory live-old/excessive findings from orphaned cleanup candidates. It recommends confirming resource pressure with `docker stats`, and never treats age/count alone as deletion authority.

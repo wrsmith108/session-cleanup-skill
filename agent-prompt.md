@@ -111,7 +111,16 @@ If any format errors are found, surface them so the user can correct the markers
 git submodule status
 ```
 
-If any submodule shows as `-dirty`:
+If any submodule shows as `-dirty`: **read the actual diff content before assuming single
+ownership** (`git -C <submodule-path> diff` plus any untracked paths) — a submodule with a
+private/shared remote can accumulate dirty state from multiple, topically-unrelated concurrent
+sessions at the same time (e.g. one session's doc edits mixed with another session's unrelated
+in-progress asset additions, both uncommitted simultaneously). If the diff spans more than one
+unrelated topic, or any part of it looks like a live in-progress edit rather than a finished
+change, do NOT commit it — report it to the user as ambiguous-ownership and leave it alone; only
+commit a dirty submodule when the diff is clearly a single, complete, attributable change. (Found
+in practice, session-cleanup run 2026-08-24: `docs/internal` carried an email-integration doc fix
+alongside an unrelated blog post's untracked image folder at the same time.)
 
 ```bash
 # Check if the submodule has a remote configured
@@ -280,11 +289,24 @@ Delete remote before local (so local delete serves as confirmation):
 git push origin --delete <branch1> <branch2> <branch3> ...
 ```
 
-Parse the output for any per-branch failures (GitHub reports `! [remote rejected]` per ref). If any branch failed, report which ones and ask the user before retrying with `--no-verify`. Always state the specific reason when bypassing hooks.
+**Shell gotcha (found in practice, session-cleanup run 2026-08-12)**: if you build the branch
+list programmatically rather than typing literal names, do NOT put it in an unquoted shell
+variable and expand it (`BRANCHES="b1 b2 b3"; git push origin --delete $BRANCHES`) — bash
+word-splits an unquoted `$VAR` on whitespace, but zsh does not by default, so under zsh this
+silently sends a single malformed ref name and the delete no-ops with no visible error. Write
+the branch names to a file (one per line) and pipe through `xargs` instead, which is
+shell-agnostic:
 
 ```bash
-# Then local (also batched)
-git branch -D <branch1> <branch2> ...
+printf '%s\n' "${branches[@]}" > /tmp/branches-to-delete.txt   # or however you built the list
+xargs git push origin --delete < /tmp/branches-to-delete.txt
+```
+
+Parse the output for any per-branch failures (GitHub reports `! [remote rejected]` per ref). If any branch failed, report which ones and ask the user before retrying with `--no-verify`. Always state the specific reason when bypassing hooks. **Verify the deletes actually landed** — `git ls-remote --heads origin` (live, not cached tracking refs) is the ground truth, not the push command's own exit code.
+
+```bash
+# Then local (also batched) — same xargs approach, same shell-agnostic reasoning
+xargs git branch -D < /tmp/branches-to-delete.txt
 ```
 
 ### 3c. Stale remote-only branches
@@ -333,6 +355,15 @@ git worktree prune
 ```
 
 Do not remove worktrees that show recent file modification times or have active processes.
+**A merged PR + a fully clean `git status` is NOT sufficient on its own** — cross-check a third
+signal before proposing removal: `docker ps --filter name=<worktree-slug> --format '{{.Names}} {{.Status}}'`.
+A running dev container (e.g. `Up 6 hours`) combined with a same-day commit timestamp is evidence
+the worktree may still be mid-workflow for a concurrent session (a post-merge step not yet run,
+or the container simply not torn down yet) even though its branch already merged. Treat "container
+running" the same as "recent file modification" — downgrade from "safe to remove" to "flag for
+confirmation" rather than removing outright. (Found in practice, session-cleanup run 2026-08-24:
+three merged-PR worktrees all had running containers — one 6h, one 26h old — while only the
+container-less one was actually safe.)
 
 ### 4c. Orphaned Docker resource sweep (audit only)
 
@@ -344,7 +375,23 @@ orphaned volumes/images are never caught by anything and accumulate silently ove
 step is a periodic backstop for exactly that gap — it is not a duplicate of 4b's per-removal
 cleanup.
 
-Check for a project-specific Docker orphan-prune script (common names:
+**A project-specific orphan-prune script is a starting point, not the whole check** (found in
+practice, session-cleanup run 2026-08-25: `scripts/prune-orphaned-docker-volumes.sh --dry-run
+--include-unlabeled` reported zero candidates, but a manual cross-check of `docker volume ls`
+against `git worktree list` turned up ~2.7GB across 6 fully orphaned worktree-slug volume
+groups the script missed entirely. Root cause, confirmed by reading the script: its ownership
+predicate only recognized two volume-naming shapes — `<slug>_node_modules` and
+`<slug>_native-seed-<module>` — and the orphaned volumes used a newer per-package shape,
+`<slug>_<package>-node-modules` (e.g. `pr-2252-cookie-fix_pr2252-node-modules`), that postdated
+the script's pattern matching. A script's coverage silently drifts out of sync with the
+project's own naming conventions over time — this is not specific to this one script, so treat
+ANY project's orphan-prune script the same way: useful, but not sufficient on its own). Run
+BOTH checks below every time — the script if one exists, and the manual cross-check — rather
+than trusting either alone. If the script's own gap is confirmed (not just suspected), it's
+worth a real bug report on the script itself, not just a workaround here — see the note at the
+end of this section.
+
+**Script check** (skip if no such script exists — common names:
 `prune-orphaned-docker-volumes.sh`, `docker-prune-orphans.sh`, `prune-docker-orphans.sh`):
 
 ```bash
@@ -353,45 +400,111 @@ ls ./scripts/prune-orphaned-docker-volumes.sh 2>/dev/null \
   || ls ./scripts/prune-docker-orphans.sh 2>/dev/null && echo "script exists"
 ```
 
-**If no such script exists**: skip this step entirely — not every project has one. No need to
-mention it in the summary.
-
-**If a script exists**, run it read-only first. Check its `--help`/usage output or header
-comments for a dry-run flag and an "include unconfirmed/unlabeled ownership" flag — most
-scripts of this shape separate ownership-confirmed candidates (safe to auto-delete) from
-unconfirmed ones (need a human look) behind flags like `--dry-run` / `--include-unlabeled`:
+If found, run it read-only first. Check its `--help`/usage output or header comments for a
+dry-run flag and an "include unconfirmed/unlabeled ownership" flag:
 
 ```bash
 ./scripts/prune-orphaned-docker-volumes.sh --dry-run --include-unlabeled
 ```
 
-**Cross-check before presenting anything**: extract the project-name slug from each reported
-candidate and confirm none of them match the worktree paths listed in Phase 4a's
-`git worktree list` output. This is a second, independent check layered on top of whatever
-safety predicate the project's own script already implements — not a replacement for it.
-
-If the dry-run reports zero candidates: note "checked — nothing orphaned" and move on.
-
-If it reports candidates, present the counts and ask:
-
-> "Found N orphaned Docker volumes/images that don't match any current worktree (~X reclaimable
-> disk space). Prune them?"
-
-If the ownership-confirmed and unconfirmed counts differ meaningfully, offer the narrower scope
-too — e.g. "prune only the confirmed-owned ones" vs. "include the unconfirmed-ownership ones as
-well" — and let the user pick. Only run the destructive form after explicit approval:
+**Manual cross-check** (always run this — script or no script, and regardless of what the
+script reported):
 
 ```bash
-./scripts/prune-orphaned-docker-volumes.sh --include-unlabeled   # or without the flag, per user's chosen scope
+# 1. Get current worktree slugs — the basename of each path in Phase 4a's git worktree list
+git worktree list
+
+# 2. List every Docker Compose project currently represented in local volumes,
+#    grouped by the com.docker.compose.project label (not by guessing at name substrings)
+docker volume ls --format '{{json .}}' > /tmp/vols.jsonl
+python3 -c "
+import json
+from collections import Counter
+projects = Counter()
+with open('/tmp/vols.jsonl') as f:
+    for line in f:
+        d = json.loads(line)
+        for kv in (d.get('Labels') or '').split(','):
+            if kv.startswith('com.docker.compose.project='):
+                projects[kv.split('=',1)[1]] += 1
+for p, c in projects.most_common():
+    print(c, p)
+"
+
+# 3. For each project name that does NOT match a current worktree slug, confirm zero
+#    live/stopped containers before treating it as orphaned — a name mismatch alone
+#    is not proof of orphan status:
+docker ps -a --format '{{.Names}}' | grep -i '<candidate-project-name>'
+
+# 4. Confirm the candidate's volumes are actually dangling (zero container references,
+#    running or stopped):
+docker volume ls -f dangling=true -q > /tmp/dangling.txt
+grep -qx '<volume-name>' /tmp/dangling.txt && echo "confirmed dangling"
 ```
 
-If the user declines, or the script doesn't expose these flags, note that in the summary and
+**Never touch a volume/image whose `com.docker.compose.project` label doesn't match this
+repo's own naming pattern at all** (found in practice: volumes named `awp_pgdata` and
+`firmware_meshtastic_data` sitting alongside this project's worktree volumes on the same
+machine) — those belong to entirely unrelated Docker Compose projects sharing the same Docker
+daemon, not stale worktrees of the current project, and are always out of scope regardless of
+dangling status.
+
+**Build cache is a separate, lower-risk category neither the script nor the manual
+volume/image cross-check above covers** — `docker system df` reports it as its own line item.
+A conservative `docker builder prune` (no `-a` flag) only removes cache entries not referenced
+by any current image, so it's safe to offer without the same scrutiny as volume/image deletion
+— still ask first (Safety Rule #10 applies), but it can be framed as low-risk in the ask.
+
+**Superseded image tags** — same repository, an older tag, where a newer tag of the same
+component already exists and neither tag is attached to any container — are a third category,
+moderate risk. Flag these separately from confirmed-orphaned volumes and ask before removing
+(a duplicate version could occasionally be kept deliberately, e.g. for rollback testing).
+
+If the script AND the manual cross-check both report zero candidates across all categories:
+note "checked — nothing orphaned" and move on.
+
+If either reports candidates, present the categorized counts and ask:
+
+> "Found N confirmed-orphaned volumes (~XGB), M superseded image tags (~YGB), and Z GB of
+> stale build cache. Which should I clean up?"
+
+Use `AskUserQuestion` with `multiSelect: true` so the user can pick any combination rather than
+an all-or-nothing yes/no. Only run the destructive commands after explicit per-category
+approval:
+
+```bash
+# Confirmed-orphaned volumes only — write the list to a file first (same xargs
+# shell-agnostic pattern as Phase 3b), never delete on a name-substring guess
+xargs docker volume rm < /tmp/orphaned-volumes.txt
+
+# Build cache
+docker builder prune -f
+
+# Superseded image tags — remove named tags individually, never a bulk
+# `docker image prune -a`, so an accidental match against something still wanted
+# can't get swept up in the same command
+docker rmi <repo>:<old-tag>
+```
+
+After removing anything, re-run `docker system df` and report the before/after totals in the
+summary — a raw "N removed" count doesn't tell the user how much disk they actually got back.
+
+If the user declines everything, or neither check finds anything, note that in the summary and
 move on — this step must never block the rest of Phase 4 or Phase 5.
 
+**If the manual cross-check finds something the project's own script should have caught**
+(same naming convention the script is documented to cover, but missed): don't just route
+around it silently — that's a real bug in checked-in tooling, not a one-off cleanup task. File
+it the same way any other real, in-scope finding gets filed (a Linear issue, or whatever this
+project's own convention is) rather than letting it evaporate as an unlogged observation. This
+skill's job is the cleanup; someone still needs to know the backstop itself has a gap.
+
 **Phase 4 summary line** (always emit): List removed worktrees, whether a Docker warning was
-issued, AND the orphan sweep result (resources removed + space reclaimed / "checked — nothing
-orphaned" / "no orphan-prune script found" / "skipped — user declined"), or "All clean, nothing
-to do" if nothing in 4a–4c required action.
+issued, AND the orphan sweep result — broken out by category (orphaned volumes / superseded
+images / build cache), each as "N removed, ~XGB reclaimed" or "checked — nothing orphaned" —
+plus "no orphan-prune script found — ran manual cross-check only" when applicable, or "skipped
+— user declined" per category, or "All clean, nothing to do" if nothing in 4a–4c required
+action.
 
 ---
 

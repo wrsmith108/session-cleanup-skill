@@ -7,6 +7,11 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [1.7.0] — 2026-08-25
+
+### Added
+- **Phase 4c no longer trusts a project's orphan-prune script alone**: it now always runs a manual cross-check too (`docker volume ls`'s `com.docker.compose.project` labels against `git worktree list`, plus a dangling-volume/live-container confirmation before calling anything orphaned). Also extends 4c's scope to two categories the script-only approach never covered: build-cache pruning (`docker builder prune`, low-risk, doesn't touch any current image) and superseded same-repository image tags (moderate-risk, ask first). Explicitly excludes volumes/images belonging to unrelated Docker Compose projects sharing the same daemon. Found via a real cleanup run: a project's own `prune-orphaned-docker-volumes.sh --dry-run --include-unlabeled` reported zero candidates, but the manual cross-check found ~2.7GB across 6 fully orphaned volume groups the script's ownership predicate didn't recognize (a newer per-package `<slug>_<package>-node-modules` naming shape postdated the script's pattern matching). Total reclaim across all three categories that run: ~37GB (orphaned volumes + build cache + superseded images).
+
 ## [1.6.0] — 2026-07-25
 
 ### Added
