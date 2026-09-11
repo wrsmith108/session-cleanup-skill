@@ -304,6 +304,8 @@ xargs git push origin --delete < /tmp/branches-to-delete.txt
 
 Parse the output for any per-branch failures (GitHub reports `! [remote rejected]` per ref). If any branch failed, report which ones and ask the user before retrying with `--no-verify`. Always state the specific reason when bypassing hooks. **Verify the deletes actually landed** — `git ls-remote --heads origin` (live, not cached tracking refs) is the ground truth, not the push command's own exit code.
 
+**A batch with some already-gone refs can fail atomically — don't assume the rest went through** (found in practice, session-cleanup run 2026-08-28): pushing 19 `--delete` refs in one command where 16 no longer existed remotely (GitHub's delete-branch-on-merge had already removed them) printed `error: unable to delete '<ref>': remote ref does not exist` for those 16 and exited 1 — but the other 3 refs, which DID still exist and were never named in any error line, were also NOT deleted. GitHub rejected the whole push atomically rather than partially applying it. The per-ref error lines are not a reliable list of "everything that failed" — a ref's absence from the error output does not mean it succeeded. After any batched delete that exits non-zero, re-run `git ls-remote --heads origin` and diff it against the full intended-delete list (not just the named-in-error subset) to find every ref that's still actually present, then retry the delete with exactly that subset in one clean batch.
+
 ```bash
 # Then local (also batched) — same xargs approach, same shell-agnostic reasoning
 xargs git branch -D < /tmp/branches-to-delete.txt

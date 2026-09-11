@@ -7,6 +7,11 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [1.7.1] — 2026-08-28
+
+### Fixed
+- **Batched remote branch deletion can fail atomically**: Phase 3b's `git push origin --delete` guidance now warns that a batch mixing already-gone remote refs (deleted by delete-branch-on-merge) with real ones can be rejected as a whole, with no refs actually deleted — even though the per-ref error output only names the already-gone refs, making the batch look partially successful. Found via a real cleanup run: a 19-branch batch where 16 refs no longer existed remotely printed 16 "remote ref does not exist" errors and exited 1; the other 3 refs, never named in any error, were also not deleted. Guidance now says to re-run `git ls-remote --heads origin` after any non-zero exit and retry with exactly the refs still actually present.
+
 ## [1.7.0] — 2026-08-25
 
 ### Added

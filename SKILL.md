@@ -1,7 +1,7 @@
 ---
 name: "Session Cleanup"
 description: "End-of-session housekeeping for git repositories. Use when the user asks to 'end of session', 'clean up session', 'session housekeeping', 'clean up branches', 'clean up worktrees', or 'clean up remote branches'."
-version: "1.7.0"
+version: "1.7.1"
 ---
 
 # Session Cleanup
@@ -74,6 +74,16 @@ of ~/.claude/skills/session-cleanup/agent-prompt.md as the prompt.
 ---
 
 ## Changelog
+
+### v1.7.1 (2026-08-28)
+- **Fixed**: Phase 3b's batched `git push origin --delete` guidance now warns that a batch mixing
+  already-gone remote refs with real ones can fail atomically — the whole push is rejected with
+  no refs deleted, even though the per-ref error output only names the already-gone ones, making
+  it look like the rest succeeded. Found in practice: a 19-branch batch where 16 refs no longer
+  existed remotely (delete-branch-on-merge) printed 16 "remote ref does not exist" errors and
+  exited 1; the other 3 refs, never named in any error, were also not deleted. Guidance now says
+  to re-run `git ls-remote --heads origin` after any non-zero exit and retry with exactly the
+  refs still actually present, rather than trusting the error output's named subset.
 
 ### v1.7.0 (2026-08-25)
 - **Added**: Phase 4c no longer trusts a project's orphan-prune script alone — it now always
