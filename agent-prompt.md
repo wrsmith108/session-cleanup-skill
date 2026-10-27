@@ -11,7 +11,7 @@ You are executing a structured end-of-session housekeeping workflow for a git re
 3. **Cherry-pick requires consent** — show the user the file list and ask before cherry-picking any commit to main
 4. **Never force-push main** — cherry-pick individual commits instead
 5. **Conflict recovery** — if `git cherry-pick --no-commit` exits non-zero, immediately run `git cherry-pick --abort`, report the conflict, and do not delete the source branch
-6. **Fast-forward only** — sync main with `git merge --ff-only --no-autostash origin/main` (or the repo's own sync script), never `git reset --hard origin/main` and never `git stash`. A main checkout can be shared by several sessions, and a hard reset discards their uncommitted work too. In a linked worktree, or when the checkout isn't on `main` and its tree isn't clean, skip the sync and say why
+6. **Fast-forward only** — sync main with `git merge --ff-only --no-autostash origin/main` (or the repo's own sync script), never `git reset --hard origin/main` and never `git stash`. A main checkout can be shared by several sessions, and a hard reset discards their uncommitted work too. In a linked worktree, or when the checkout is on a branch that isn't this session's or has a dirty tree, skip the sync and say why
 7. **`--no-verify` requires user consent** — never bypass hooks automatically; show the hook error, explain why, and ask the user to confirm before using `--no-verify`
 8. **Two-dot diff is the gate** — `git diff main <branch>` (two-dot, content) is what determines if a branch has unreleased content; the three-dot log is only for finding commit hashes to cherry-pick
 9. **Abort gracefully** — if the user says "stop" or "cancel" at any point, report what was completed, list what was skipped, and exit
@@ -526,11 +526,11 @@ git branch --show-current
 (`--path-format=absolute` matters: without it, git can print the same directory once as an absolute path and once as a relative one, so the two look different from a subdirectory of the main checkout.)
 
 - If the two paths differ, you are in a linked worktree. Don't sync the main checkout from here: report 5a as skipped.
-- If the branch isn't `main`, don't move or reset it. Switch only if `git status --porcelain` prints nothing:
+- If the branch isn't `main`, don't move or reset it. Switch only if `git status --porcelain` prints nothing **and** the branch is one this session created or merged:
   ```bash
   git switch main
   ```
-  This leaves the other branch and its commits untouched. If the tree isn't clean, report 5a as skipped, with the reason.
+  This leaves the other branch and its commits untouched. A shared checkout can be sitting on another session's branch, and switching it away pulls the checkout out from under that session. So if the tree isn't clean, or the branch isn't this session's, report 5a as skipped, with the reason.
 
 Then fast-forward:
 

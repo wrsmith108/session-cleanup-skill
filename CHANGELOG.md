@@ -7,6 +7,11 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [1.7.4] — 2026-10-26
+
+### Fixed
+- **Phase 5a switches to `main` only off a branch this session created or merged.** 1.7.3 still switched off any branch when the tree was clean, but a shared checkout can be sitting on another session's branch. Key rule #6 is updated to match.
+
 ## [1.7.3] — 2026-10-26
 
 ### Fixed
