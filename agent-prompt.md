@@ -11,7 +11,7 @@ You are executing a structured end-of-session housekeeping workflow for a git re
 3. **Cherry-pick requires consent** — show the user the file list and ask before cherry-picking any commit to main
 4. **Never force-push main** — cherry-pick individual commits instead
 5. **Conflict recovery** — if `git cherry-pick --no-commit` exits non-zero, immediately run `git cherry-pick --abort`, report the conflict, and do not delete the source branch
-6. **Reset guard** — before `git reset --hard origin/main`, confirm working tree is clean AND current branch is `main`; abort if either check fails (a clean-but-non-main checkout, e.g. a feature/docs branch with an open PR, must never be reset — checkout `main` first, don't reset the branch you're on)
+6. **Fast-forward only** — sync main with `git merge --ff-only --no-autostash origin/main` (or the repo's own sync script), never `git reset --hard origin/main` and never `git stash`. A main checkout can be shared by several sessions, and a hard reset discards their uncommitted work too. In a linked worktree, or when the checkout isn't on `main` and its tree isn't clean, skip the sync and say why
 7. **`--no-verify` requires user consent** — never bypass hooks automatically; show the hook error, explain why, and ask the user to confirm before using `--no-verify`
 8. **Two-dot diff is the gate** — `git diff main <branch>` (two-dot, content) is what determines if a branch has unreleased content; the three-dot log is only for finding commit hashes to cherry-pick
 9. **Abort gracefully** — if the user says "stop" or "cancel" at any point, report what was completed, list what was skipped, and exit
@@ -48,7 +48,7 @@ If `gh` is not installed or not authenticated: halt and tell the user. Offer two
 git status --porcelain
 ```
 
-If output is non-empty: report the uncommitted changes and ask the user if they want to commit, stash, or abort before cleanup begins.
+If output is non-empty: report the uncommitted changes and ask the user whether to commit them, leave them in place, or abort before cleanup begins. Don't offer to stash: the stash stack is shared by every worktree and session in the repo.
 
 ---
 
@@ -514,34 +514,39 @@ action.
 
 ### 5a. Sync local main
 
-First, confirm working tree is clean:
+A main checkout can be shared by several sessions at once, and `git reset --hard` discards every uncommitted change in it, including other sessions' work. So this phase only ever fast-forwards main, and leaves the checkout alone when that isn't safe.
+
+First, find out where you are:
 
 ```bash
-git status --porcelain
-```
-
-If output is non-empty: stop. Do not reset. Report what is uncommitted and ask the user how to proceed (commit, stash, or skip sync).
-
-If clean, next confirm the checkout is actually on `main` — the main working directory can legitimately be sitting on any branch (a docs branch, a feature branch with an open PR, etc.), and `git reset --hard origin/main` moves *whatever branch is currently checked out* to match `origin/main`, discarding that branch's own unmerged commits even though the tree itself is clean:
-
-```bash
+git rev-parse --path-format=absolute --git-dir --git-common-dir
 git branch --show-current
 ```
 
-If it prints anything other than `main`: check whether that branch has commits `origin/main` doesn't (`git log origin/main..HEAD --oneline`) and whether it backs an open PR (`gh pr list --head <branch> --state open`). If either is true, do NOT reset it — instead `git checkout main` (this leaves the other branch and its commits untouched), then re-run the clean-tree check above on `main` before proceeding. If the non-main branch has no unique commits and no open PR, it's safe to `git checkout main` the same way before resetting.
+(`--path-format=absolute` matters: without it, git can print the same directory once as an absolute path and once as a relative one, so the two look different from a subdirectory of the main checkout.)
 
-Only once the checkout is confirmed to be `main` AND clean:
+- If the two paths differ, you are in a linked worktree. Don't sync the main checkout from here: report 5a as skipped.
+- If the branch isn't `main`, don't move or reset it. Switch only if `git status --porcelain` prints nothing:
+  ```bash
+  git switch main
+  ```
+  This leaves the other branch and its commits untouched. If the tree isn't clean, report 5a as skipped, with the reason.
+
+Then fast-forward:
+
 ```bash
 git fetch origin --prune
-git reset --hard origin/main
+git merge --ff-only --no-autostash origin/main
 ```
+
+If the repo has its own sync script (for example `./scripts/sync-main.sh`), run that instead and follow its refusal message. Uncommitted changes don't block a fast-forward unless origin changes the same paths, and git keeps them. If git refuses (an uncommitted change on a path origin changes, or local main has commits origin doesn't), stop: report git's message and leave the checkout as it is. Don't resolve it with `reset --hard`, `stash` or `checkout --`.
 
 ### 5b. Confirm clean state
 
 ```bash
 git branch          # Should show only: * main
 git worktree list   # Should show only main repo path
-git status          # Should show: nothing to commit, working tree clean
+git status          # Should show a clean tree, or only the uncommitted changes reported earlier
 ```
 
 ### 5c. Report summary

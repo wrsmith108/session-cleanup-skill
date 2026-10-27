@@ -1,7 +1,7 @@
 ---
 name: "Session Cleanup"
 description: "End-of-session housekeeping for git repositories. Use when the user asks to 'end of session', 'clean up session', 'session housekeeping', 'clean up branches', 'clean up worktrees', or 'clean up remote branches'."
-version: "1.7.1"
+version: "1.7.3"
 ---
 
 # Session Cleanup

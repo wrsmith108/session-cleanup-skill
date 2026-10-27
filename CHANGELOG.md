@@ -7,6 +7,12 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [1.7.3] — 2026-10-26
+
+### Fixed
+- **Phase 5a no longer runs `git reset --hard origin/main`.** A main checkout can be shared by several sessions, and the old clean-tree check only covered the moment it ran: another session could write a change between the check and the reset, and the reset would discard it. Phase 5a now fast-forwards with `git merge --ff-only --no-autostash origin/main` (or the repo's own sync script) and stops on refusal. It skips the sync in a linked worktree, and when the checkout isn't on `main` with a dirty tree.
+- **No more stash offers** at the start of a run or in Phase 5a. The stash stack is shared by every worktree and session in the repo, so a stash or pop can take another session's changes. Key rule #6 and the Phase 5b expectations are updated to match.
+
 ## [1.7.1] — 2026-08-28
 
 ### Fixed
